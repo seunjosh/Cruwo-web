@@ -2,7 +2,7 @@ import { redirect } from "next/navigation";
 import { cookies } from "next/headers";
 import Link from "next/link";
 import { User, FileText, Bot, Briefcase } from "lucide-react";
-import { API_URL } from "@/lib/api";
+import {  SERVER_API_URL } from "@/lib/api";
 import { CandidateLogoutButton } from "@/components/candidate/components/candidate/logout-button";
 import { ThemeToggle } from "@/components/theme-toggle";
 
@@ -14,7 +14,7 @@ async function requireCandidateSession() {
     redirect("/candidate-login");
   }
 
-  const res = await fetch(`${API_URL}/candidate-auth/me`, {
+ const res = await fetch(`${SERVER_API_URL}/candidate-auth/me`, {
     headers: {
       Cookie: `cruwo_candidate_session=${sessionCookie.value}`,
     },

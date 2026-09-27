@@ -2,7 +2,7 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import { cookies } from "next/headers";
 import { LayoutDashboard, Briefcase, GitBranch, ClipboardCheck, FilePlus, Settings, ListChecks } from "lucide-react";
-import { API_URL } from "@/lib/api";
+import {  SERVER_API_URL } from "@/lib/api";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { LogoutButton } from "@/components/dashboard/logout-button";
 import { Users } from "lucide-react";
@@ -21,7 +21,7 @@ async function requireSession() {
     redirect("/login");
   }
 
-  const res = await fetch(`${API_URL}/auth/me`, {
+  const res = await fetch(`${SERVER_API_URL}/auth/me`, {
     headers: { Cookie: `cruwo_session=${sessionCookie.value}` },
     cache: "no-store",
   });

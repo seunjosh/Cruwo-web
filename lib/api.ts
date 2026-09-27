@@ -3,6 +3,17 @@
 // instead of hardcoding "http://localhost:4000" everywhere.
 const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:4000";
 
+
+
+
+// Server Components (layouts, etc.) run in Node, which can't resolve a
+// relative URL like the browser can — so they need the real, absolute
+// backend URL. BACKEND_URL (no NEXT_PUBLIC_ prefix, so it's never sent
+// to the browser) provides that; it falls back to API_URL for local dev,
+// where API_URL is already an absolute localhost URL anyway.
+export const SERVER_API_URL = process.env.BACKEND_URL ?? API_URL;
+
+
 export type Job = {
   id: number;
   title: string;
