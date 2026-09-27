@@ -1,0 +1,50 @@
+@import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;700&family=JetBrains+Mono:wght@400;500;700&display=swap');
+@import "tailwindcss";
+
+
+@theme inline {
+  --color-bg: var(--bg);
+  --color-surface: var(--surface);
+  --color-border: var(--border);
+  --color-text: var(--text);
+  --color-muted: var(--muted);
+  --color-amber: var(--amber);
+  --color-green: var(--green);
+  --color-red: var(--red);
+
+  --font-display: var(--font-space-grotesk);
+  --font-mono: var(--font-jetbrains-mono);
+  --font-body: var(--font-inter);
+}
+
+/* Dark is the default look this product was designed around. */
+:root,
+.dark {
+  --bg: #0A0B0D;
+  --surface: #131519;
+  --border: #23262B;
+  --text: #F5F6F7;
+  --muted: #9AA0A6;
+  --amber: #F5A623;
+  --green: #3DDC84;
+  --red: #FF5C5C;
+}
+
+/* Light mode — same roles, lighter values, same amber/green/red accents
+   so the pipeline visual language stays recognizable either way. */
+.light {
+  --bg: #FFFFFF;
+  --surface: #F5F5F4;
+  --border: #E2E2E0;
+  --text: #17181A;
+  --muted: #6B7076;
+  --amber: #B4740E;
+  --green: #1B8A56;
+  --red: #C0392B;
+}
+
+body {
+  background: var(--color-bg);
+  color: var(--color-text);
+  font-family: var(--font-body), sans-serif;
+}
