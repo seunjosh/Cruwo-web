@@ -5,13 +5,16 @@ import { Plus, Trash2, Pencil } from "lucide-react";
 import { Avatar } from "@/components/candidate/avatar";
 import {
   getMyProfile, updateMyProfile, uploadMyPhoto, getMyCandidateAccount, extractProfileFromCv, getCandidatePhotoUrl,
-  type CandidateProfile, type ExperienceEntry, type ProjectEntry,
+  updateMyAccount, deleteMyAccount,
+  type ExperienceEntry, type ProjectEntry,
   type CertificationEntry, type EducationEntry,
 } from "@/lib/api";
 
 export default function ProfilePage() {
-  const [account, setAccount] = useState<{ email: string } | null>(null);
-  const [candidateAccountId, setCandidateAccountId] = useState<number | null>(null); // ADD THIS
+  const [account, setAccount] = useState<{ email: string; firstName?: string | null; lastName?: string | null } | null>(null);
+  const [candidateAccountId, setCandidateAccountId] = useState<number | null>(null);
+  const [firstName, setFirstName] = useState("");
+  const [lastName, setLastName] = useState("");
   const [title, setTitle] = useState("");
   const [overview, setOverview] = useState("");
   const [location, setLocation] = useState("");
@@ -28,6 +31,8 @@ export default function ProfilePage() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [editingSection, setEditingSection] = useState<string | null>(null);
+  const [confirmingDelete, setConfirmingDelete] = useState(false);
+  const [deleting, setDeleting] = useState(false);
 
   const parse = <T,>(json: string | null): T[] => {
     if (!json) return [];
@@ -38,6 +43,8 @@ export default function ProfilePage() {
     const [acc, profile] = await Promise.all([getMyCandidateAccount(), getMyProfile()]);
     setAccount(acc);
     setCandidateAccountId(acc?.candidateId ?? null);
+    setFirstName(acc?.firstName ?? "");
+    setLastName(acc?.lastName ?? "");
     if (profile) {
       setTitle(profile.title ?? "");
       setOverview(profile.overview ?? "");
@@ -62,6 +69,23 @@ export default function ProfilePage() {
       await updateMyProfile({ title, overview, location, expectedSalaryMin: salaryMin, expectedSalaryMax: salaryMax, phone });
       setEditingSection(null);
     } finally { setSaving(false); }
+  };
+
+  const saveName = async () => {
+    setSaving(true);
+    try {
+      await updateMyAccount(firstName, lastName);
+      await load();
+      setEditingSection(null);
+    } finally { setSaving(false); }
+  };
+
+  // The basics form edits both profile fields and the account name.
+  // Order matters: saveName() calls load(), which would overwrite any
+  // unsaved profile edits, so the profile is saved first.
+  const saveBasicsAndName = async () => {
+    await saveBasics();
+    await saveName();
   };
 
   const saveSection = async (
@@ -105,25 +129,33 @@ export default function ProfilePage() {
 
   if (loading) return <div className="p-8 text-muted">Loading profile...</div>;
 
-  const initials = (account?.email ?? "?").slice(0, 2).toUpperCase();
+  const displayName = [account?.firstName, account?.lastName].filter(Boolean).join(" ") || account?.email;
 
   return (
     <div className="max-w-3xl mx-auto p-8">
       {/* Header card */}
       <div className="rounded-xl border border-border bg-surface p-6 mb-6 flex gap-6">
         <div className="relative">
-          <div className="w-24 h-24 rounded-lg bg-bg border border-border flex items-center justify-center text-2xl font-display text-muted overflow-hidden">
-           {candidateAccountId && <Avatar src={getCandidatePhotoUrl(candidateAccountId)} name={account?.email ?? ""} size={96} />}
+          <div className={`w-24 h-24 rounded-lg bg-bg border border-border flex items-center justify-center text-2xl font-display text-muted overflow-hidden transition-opacity ${photoUploading ? "opacity-50" : ""}`}>
+            {photoUploading
+              ? <span className="text-xs">Uploading...</span>
+              : candidateAccountId && <Avatar src={getCandidatePhotoUrl(candidateAccountId)} name={displayName ?? ""} size={96} />}
           </div>
-          <label className="absolute -bottom-2 -right-2 w-7 h-7 rounded-full bg-amber flex items-center justify-center cursor-pointer">
+          <label className={`absolute -bottom-2 -right-2 w-7 h-7 rounded-full bg-amber flex items-center justify-center ${photoUploading ? "opacity-50 cursor-not-allowed" : "cursor-pointer"}`}>
             <Pencil className="w-3.5 h-3.5 text-[#1A1204]" />
-            <input type="file" accept="image/*" className="hidden"
+            <input type="file" accept="image/*" className="hidden" disabled={photoUploading}
               onChange={(e) => e.target.files?.[0] && handlePhotoUpload(e.target.files[0])} />
           </label>
         </div>
         <div className="flex-1">
           {editingSection === "basics" ? (
             <div className="flex flex-col gap-2">
+              <div className="flex gap-2">
+                <input value={firstName} onChange={(e) => setFirstName(e.target.value)} placeholder="First name"
+                  className="bg-bg border border-border rounded-lg px-3 py-2 text-sm flex-1 focus:outline-none focus:border-amber" />
+                <input value={lastName} onChange={(e) => setLastName(e.target.value)} placeholder="Last name"
+                  className="bg-bg border border-border rounded-lg px-3 py-2 text-sm flex-1 focus:outline-none focus:border-amber" />
+              </div>
               <input value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Title, e.g. AI Engineer"
                 className="bg-bg border border-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-amber" />
               <div className="flex gap-2">
@@ -136,7 +168,7 @@ export default function ProfilePage() {
               </div>
               <input value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="Phone"
                 className="bg-bg border border-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-amber" />
-              <button onClick={saveBasics} disabled={saving}
+              <button onClick={saveBasicsAndName} disabled={saving}
                 className="font-display text-xs font-medium bg-amber text-[#1A1204] rounded-lg px-3 py-1.5 self-start disabled:opacity-50">
                 {saving ? "Saving..." : "Save"}
               </button>
@@ -149,7 +181,7 @@ export default function ProfilePage() {
                   <Pencil className="w-3.5 h-3.5" />
                 </button>
               </div>
-              <h1 className="font-display text-xl font-bold mb-2">{account?.email}</h1>
+              <h1 className="font-display text-xl font-bold mb-2">{displayName}</h1>
               <div className="flex gap-2">
                 {(salaryMin || salaryMax) && (
                   <span className="text-xs bg-bg border border-border rounded-full px-3 py-1">
@@ -317,6 +349,40 @@ export default function ProfilePage() {
           </div>
         ) : (
           <p className="text-sm text-muted">{languages.join(", ") || "—"}</p>
+        )}
+      </div>
+
+      {/* Delete account */}
+      <div className="border-t border-border pt-6 mt-8">
+        <h2 className="font-display text-base font-medium text-red mb-2">Delete account</h2>
+        <p className="text-xs text-muted mb-3">
+          This permanently deletes your profile and login. Applications you&apos;ve submitted stay on record for the companies you applied to, but will no longer be linked to your account.
+        </p>
+        {confirmingDelete ? (
+          <div className="flex gap-3">
+            <button
+              onClick={async () => {
+                setDeleting(true);
+                try {
+                  await deleteMyAccount();
+                  window.location.href = "/";
+                } catch {
+                  setDeleting(false);
+                }
+              }}
+              disabled={deleting}
+              className="text-sm bg-red text-[#2A0808] rounded-lg px-4 py-2 disabled:opacity-50"
+            >
+              {deleting ? "Deleting..." : "Yes, delete my account"}
+            </button>
+            <button onClick={() => setConfirmingDelete(false)} className="text-sm border border-border rounded-lg px-4 py-2 hover:bg-bg transition-colors">
+              Cancel
+            </button>
+          </div>
+        ) : (
+          <button onClick={() => setConfirmingDelete(true)} className="text-sm border border-red text-red rounded-lg px-4 py-2 hover:bg-red/10 transition-colors">
+            Delete my account
+          </button>
         )}
       </div>
     </div>

@@ -514,15 +514,24 @@ export async function candidateLogin(email: string, password: string) {
   return data;
 }
 
-export async function candidateSignup(email: string, password: string, name: string) {
+
+export async function candidateSignup(
+  email: string,
+  password: string,
+  firstName: string,
+  lastName: string
+) {
   const res = await fetch(`${API_URL}/candidate-auth/signup`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     credentials: "include",
-    body: JSON.stringify({ email, password, name }),
+    body: JSON.stringify({ email, password, firstName, lastName }),
   });
+
   const data = await res.json();
+
   if (!res.ok) throw new Error(data.error ?? "Signup failed");
+
   return data;
 }
 
@@ -531,7 +540,6 @@ export async function getMyCandidateAccount() {
   if (!res.ok) return null;
   return res.json();
 }
-
 
 
 
@@ -594,5 +602,22 @@ export async function getTalentPool(): Promise<TalentPoolEntry[]> {
   if (!res.ok) throw new Error("Failed to load candidates");
   return res.json();
 }
+
+
+export async function updateMyAccount(firstName: string, lastName: string) {
+  const res = await apiFetch("/candidate-auth/me", {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ firstName, lastName }),
+  });
+  if (!res.ok) throw new Error((await res.json()).error ?? "Update failed");
+  return res.json();
+}
+
+export async function deleteMyAccount() {
+  const res = await apiFetch("/candidate-auth/me", { method: "DELETE" });
+  if (!res.ok) throw new Error("Delete failed");
+}
+
 
 export { API_URL };
