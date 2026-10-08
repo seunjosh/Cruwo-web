@@ -1,5 +1,7 @@
 import Link from "next/link";
 import { ThemeToggle } from "@/components/theme-toggle";
+import { cookies } from "next/headers";
+import { API_URL } from "@/lib/api";
 
 import {
   GitBranch,
@@ -10,6 +12,57 @@ import {
   ArrowRight,
   CheckCircle2,
 } from "lucide-react";
+
+// ---------------------------------------------------------------------------
+// SESSION CHECK (server-side)
+// ---------------------------------------------------------------------------
+// Figures out who (if anyone) is logged in by reading the session cookies
+// and asking the backend to validate them. Runs on the server, so there is
+// no flash of the wrong header on the client.
+//   "hr"        -> valid HR session
+//   "candidate" -> valid candidate session
+//   null        -> logged out (or the check failed)
+async function getSessionType(): Promise<"hr" | "candidate" | null> {
+  try {
+    // In recent Next.js versions, cookies() is async and must be awaited.
+    const cookieStore = await cookies();
+
+    // 1) Check for an HR session first.
+    const hrCookie = cookieStore.get("cruwo_session");
+    if (hrCookie) {
+      const res = await fetch(`${API_URL}/auth/me`, {
+        // Forward the cookie manually, since this fetch runs on the server
+        // and doesn't automatically include the browser's cookies.
+        headers: { Cookie: `cruwo_session=${hrCookie.value}` },
+        // Never cache: session state must be fresh on every request.
+        cache: "no-store",
+      });
+      if (res.ok) return "hr";
+    }
+
+    // 2) No valid HR session, so check for a candidate session.
+    const candidateCookie = cookieStore.get("cruwo_candidate_session");
+    if (candidateCookie) {
+      const res = await fetch(`${API_URL}/candidate-auth/me`, {
+        headers: {
+          Cookie: `cruwo_candidate_session=${candidateCookie.value}`,
+        },
+        cache: "no-store",
+      });
+      if (res.ok) return "candidate";
+    }
+  } catch {
+    // If the API is unreachable, treat the visitor as logged out so the
+    // marketing page still renders instead of crashing.
+  }
+
+  // No cookies, or neither session was valid.
+  return null;
+}
+
+// ---------------------------------------------------------------------------
+// UI HELPERS
+// ---------------------------------------------------------------------------
 
 // A small reusable pipe-stage dot, reused from the actual product UI's
 // visual language — this is the same "pipeline run" concept a recruiter
@@ -52,6 +105,8 @@ function HeroPipelinePreview() {
                 {stage.label}
               </span>
             </div>
+            {/* Connector line between dots (not after the last one).
+                Green once the stage is passed, neutral otherwise. */}
             {i < stages.length - 1 && (
               <div
                 className={`h-0.5 flex-[2] -mt-4 ${
@@ -101,34 +156,76 @@ function FeatureRow({ text }: { text: string }) {
   );
 }
 
-export default function LandingPage() {
+// ---------------------------------------------------------------------------
+// PAGE
+// ---------------------------------------------------------------------------
+
+// The component is now async so it can await the session check before
+// rendering. Because it reads cookies, Next.js renders this page per request
+// (dynamic) instead of statically.
+export default async function LandingPage() {
+  // Determine who is visiting: "hr", "candidate", or null (logged out).
+  const sessionType = await getSessionType();
+
   return (
     <div className="flex flex-col">
       {/* --- Nav --- */}
       <header className="border-b border-border">
-  <div className="max-w-6xl mx-auto px-6 h-16 flex items-center justify-between">
-    <div className="flex items-center gap-2">
-         <Link href="/" className="flex items-center gap-2">
-  <img src="/Cruwo-logo.svg" alt="Cruwo" className="h-8" />
-</Link>
-      <span className="font-mono text-[10px] text-amber border border-amber/30 bg-amber/10 rounded px-1.5 py-0.5">
-        AGENT-DRIVEN
-      </span>
-    </div>
-    <div className="flex items-center gap-3">
-      <ThemeToggle />
-      <Link href="/signin" className="font-display text-sm font-medium text-muted hover:text-text transition-colors">
-        Sign in
-      </Link>
-      <Link
-        href="/join"
-        className="font-display text-sm font-medium bg-amber text-[#1A1204] rounded-lg px-4 py-2 hover:opacity-90 transition-opacity"
-      >
-        Join Cruwo
-      </Link>
-    </div>
-  </div>
-</header>
+        <div className="max-w-6xl mx-auto px-6 h-16 flex items-center justify-between">
+          {/* Left side: logo + badge */}
+          <div className="flex items-center gap-2">
+            <Link href="/" className="flex items-center gap-2">
+              <img src="/Cruwo-logo.svg" alt="Cruwo" className="h-8" />
+            </Link>
+            <span className="font-mono text-[10px] text-amber border border-amber/30 bg-amber/10 rounded px-1.5 py-0.5">
+              AGENT-DRIVEN
+            </span>
+          </div>
+
+          {/* Right side: theme toggle + session-aware navigation */}
+          <div className="flex items-center gap-3">
+            <ThemeToggle />
+
+            {/* Logged-in HR user: send them straight to their dashboard */}
+            {sessionType === "hr" && (
+              <Link
+                href="/dashboard"
+                className="font-display text-sm font-medium bg-amber text-[#1A1204] rounded-lg px-4 py-2 hover:opacity-90 transition-opacity"
+              >
+                Go to Dashboard
+              </Link>
+            )}
+
+            {/* Logged-in candidate: send them to their profile */}
+            {sessionType === "candidate" && (
+              <Link
+                href="/profile"
+                className="font-display text-sm font-medium bg-amber text-[#1A1204] rounded-lg px-4 py-2 hover:opacity-90 transition-opacity"
+              >
+                Go to My Profile
+              </Link>
+            )}
+
+            {/* Logged-out visitor: show the usual Sign in / Join buttons */}
+            {sessionType === null && (
+              <>
+                <Link
+                  href="/signin"
+                  className="font-display text-sm font-medium text-muted hover:text-text transition-colors"
+                >
+                  Sign in
+                </Link>
+                <Link
+                  href="/join"
+                  className="font-display text-sm font-medium bg-amber text-[#1A1204] rounded-lg px-4 py-2 hover:opacity-90 transition-opacity"
+                >
+                  Join Cruwo
+                </Link>
+              </>
+            )}
+          </div>
+        </div>
+      </header>
 
       {/* --- Hero --- */}
       <section className="max-w-6xl mx-auto px-6 py-24 grid md:grid-cols-2 gap-12 items-center">
@@ -148,6 +245,7 @@ export default function LandingPage() {
             >
               See it in action <ArrowRight className="w-4 h-4" />
             </Link>
+            {/* Anchor link that scrolls to the #how-it-works section below */}
             <Link
               href="#how-it-works"
               className="font-display text-sm font-medium border border-border rounded-lg px-5 py-3 hover:bg-surface transition-colors"
@@ -247,12 +345,9 @@ export default function LandingPage() {
           href="/careers"
           className="font-display text-sm font-medium bg-amber text-[#1A1204] rounded-lg px-6 py-3 hover:opacity-90 transition-opacity inline-flex items-center gap-2"
         >
-         
           View open roles <ArrowRight className="w-4 h-4" />
         </Link>
       </section>
-      
-
 
       {/* --- Footer --- */}
       <footer className="border-t border-border">

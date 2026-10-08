@@ -33,7 +33,7 @@ export default function ProfilePage() {
   const [editingSection, setEditingSection] = useState<string | null>(null);
   const [confirmingDelete, setConfirmingDelete] = useState(false);
   const [deleting, setDeleting] = useState(false);
-
+const [cvStatusMsg, setCvStatusMsg] = useState<string | null>(null);
   const parse = <T,>(json: string | null): T[] => {
     if (!json) return [];
     try { return JSON.parse(json); } catch { return []; }
@@ -104,28 +104,39 @@ export default function ProfilePage() {
     try { await uploadMyPhoto(file); await load(); } finally { setPhotoUploading(false); }
   };
 
-  const handleCvUpload = async (file: File) => {
-    setExtracting(true);
-    try {
-      const extracted = await extractProfileFromCv(file);
-      setTitle(extracted.title ?? "");
-      setOverview(extracted.overview ?? "");
-      setLocation(extracted.location ?? "");
-      setExperience(extracted.experience ?? []);
-      setProjects(extracted.projects ?? []);
-      setCertifications(extracted.certifications ?? []);
-      setEducation(extracted.education ?? []);
-      setLanguages(extracted.languages ?? []);
-      // Save everything at once, since it's all fresh from the CV.
-      await updateMyProfile({
-        title: extracted.title, overview: extracted.overview, location: extracted.location,
-        experience: extracted.experience, projects: extracted.projects,
-        certifications: extracted.certifications, education: extracted.education, languages: extracted.languages,
-      });
-    } finally {
-      setExtracting(false);
+const handleCvUpload = async (file: File) => {
+  setExtracting(true);
+  setCvStatusMsg(null);
+  try {
+    const result = await extractProfileFromCv(file);
+    if (!result.extracted) {
+      setCvStatusMsg("Your CV was saved, but we couldn't read any text from it. You can fill your profile in manually.");
+      return;
     }
-  };
+
+    // Only apply fields that actually came back with content.
+    const updates: Record<string, unknown> = {};
+    if (result.title) { setTitle(result.title); updates.title = result.title; }
+    if (result.overview) { setOverview(result.overview); updates.overview = result.overview; }
+    if (result.location) { setLocation(result.location); updates.location = result.location; }
+    if (result.phone) { setPhone(result.phone); updates.phone = result.phone; }
+    if (result.experience?.length) { setExperience(result.experience); updates.experience = result.experience; }
+    if (result.projects?.length) { setProjects(result.projects); updates.projects = result.projects; }
+    if (result.certifications?.length) { setCertifications(result.certifications); updates.certifications = result.certifications; }
+    if (result.education?.length) { setEducation(result.education); updates.education = result.education; }
+    if (result.languages?.length) { setLanguages(result.languages); updates.languages = result.languages; }
+
+    if (Object.keys(updates).length) await updateMyProfile(updates as any);
+
+    setCvStatusMsg(
+      result.method === "agent"
+        ? "Your CV was saved and your profile filled in automatically."
+        : "Your CV was saved and your profile was filled in using basic parsing. It's rougher than usual, so please review each section."
+    );
+  } finally {
+    setExtracting(false);
+  }
+};
 
   if (loading) return <div className="p-8 text-muted">Loading profile...</div>;
 
@@ -208,7 +219,7 @@ export default function ProfilePage() {
         </label>
         <p className="text-xs text-muted">Upload a CV and we&apos;ll fill in your profile automatically — you can edit anything after.</p>
       </div>
-
+      {cvStatusMsg && <p className="text-xs text-green mt-2">{cvStatusMsg}</p>}
       {/* Overview + Contact */}
       <div className="grid md:grid-cols-2 gap-6 mb-6">
         <div>

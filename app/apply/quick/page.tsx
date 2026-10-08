@@ -2,7 +2,7 @@
 
 import { useEffect, useState, Suspense } from "react";
 import { useSearchParams } from "next/navigation";
-import { getOpenJobs, submitApplication, type Job } from "@/lib/api";
+import { getOpenJobs, submitApplication, getMyCandidateCvStatus, type Job } from "@/lib/api";
 
 function QuickApplyForm() {
   const searchParams = useSearchParams();
@@ -16,16 +16,32 @@ function QuickApplyForm() {
   const [submitting, setSubmitting] = useState(false);
   const [result, setResult] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
-const source = searchParams.get("source") ?? "direct";
+  const source = searchParams.get("source") ?? "direct";
+  const [consent, setConsent] = useState(false);
+
+  // Whether the signed-in candidate already has a CV on file, and whether
+  // they want to reuse it here instead of uploading a new one. Defaults to
+  // true when one exists, since that's the more convenient path.
+  const [useStoredCv, setUseStoredCv] = useState(false);
+  const [hasStoredCv, setHasStoredCv] = useState(false);
+
   useEffect(() => {
     getOpenJobs().then(setJobs);
   }, []);
-const [consent, setConsent] = useState(false);
 
+  useEffect(() => {
+    getMyCandidateCvStatus().then((status) => {
+      setHasStoredCv(status.hasCv);
+      if (status.hasCv) setUseStoredCv(true); // default to using it if available
+    });
+  }, []);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!cv || !jobId) return;
+    const willUseStoredCv = hasStoredCv && useStoredCv;
+    if (!jobId) return;
+    if (!willUseStoredCv && !cv) return;
+
     setSubmitting(true);
     setError(null);
     setResult(null);
@@ -35,9 +51,12 @@ const [consent, setConsent] = useState(false);
     formData.append("candidateEmail", candidateEmail);
     formData.append("jobId", jobId);
     formData.append("applicationMethod", "quick");
-    formData.append("cv", cv);
     formData.append("source", source);
     formData.append("consent", String(consent));
+    formData.append("useStoredCv", String(willUseStoredCv));
+    if (!willUseStoredCv && cv) {
+      formData.append("cv", cv);
+    }
     try {
       const res = await submitApplication(formData);
       if (res.warning) {
@@ -54,7 +73,17 @@ const [consent, setConsent] = useState(false);
       setError(err instanceof Error ? err.message : "Something went wrong");
     } finally {
       setSubmitting(false);
-    }
+    
+    } 
+
+if ((!cv && !useStoredCv) || !jobId) return;
+// ...
+if (useStoredCv) {
+  formData.append("useStoredCv", "true");
+} else if (cv) {
+  formData.append("cv", cv);
+}
+
   };
 
   if (result) {
@@ -106,47 +135,66 @@ const [consent, setConsent] = useState(false);
               <option value="">Select a role</option>
               {jobs.map((job) => (
                 <option key={job.id} value={job.id}>{job.title}</option>
-
-                
               ))}
-
-              {jobId && jobs.find((j) => String(j.id) === jobId) && (
-  <div className="rounded-lg border border-border bg-surface p-4 -mt-2">
-    <p className="text-sm text-muted leading-relaxed">
-      {jobs.find((j) => String(j.id) === jobId)?.description}
-    </p>
-  </div>
-)}
             </select>
+            {jobId && jobs.find((j) => String(j.id) === jobId) && (
+              <div className="rounded-lg border border-border bg-surface p-4 mt-2">
+                <p className="text-sm text-muted leading-relaxed">
+                  {jobs.find((j) => String(j.id) === jobId)?.description}
+                </p>
+              </div>
+            )}
           </div>
           <div>
             <label className="font-mono text-[10px] text-muted tracking-wide block mb-1.5">CV (PDF)</label>
-            <input
-              type="file"
-              accept="application/pdf"
-              onChange={(e) => setCv(e.target.files?.[0] ?? null)}
-              required
-              className="w-full bg-surface border border-border rounded-lg px-3 py-2.5 text-sm file:mr-3 file:border-0 file:bg-bg file:text-text file:rounded file:px-2 file:py-1"
-            />
+            {hasStoredCv ? (
+              <div className="mb-2">
+                <label className="flex items-center gap-2 cursor-pointer mb-2">
+                  <input
+                    type="checkbox"
+                    checked={useStoredCv}
+                    onChange={(e) => setUseStoredCv(e.target.checked)}
+                    className="w-4 h-4 accent-amber"
+                  />
+                  <span className="text-sm">Use the CV on my profile</span>
+                </label>
+                {!useStoredCv && (
+                  <input
+                    type="file"
+                    accept="application/pdf"
+                    onChange={(e) => setCv(e.target.files?.[0] ?? null)}
+                    className="w-full bg-surface border border-border rounded-lg px-3 py-2.5 text-sm"
+                  />
+                )}
+              </div>
+            ) : (
+              <input
+                type="file"
+                accept="application/pdf"
+                onChange={(e) => setCv(e.target.files?.[0] ?? null)}
+                required
+                className="w-full bg-surface border border-border rounded-lg px-3 py-2.5 text-sm"
+              />
+            )}
           </div>
           {error && <p className="text-red text-sm">{error}</p>}
           <label className="flex items-start gap-2.5 cursor-pointer">
-  <input
-    type="checkbox"
-    checked={consent}
-    onChange={(e) => setConsent(e.target.checked)}
-    required
-    className="w-4 h-4 mt-0.5 accent-amber shrink-0"
-  />
-  <span className="text-xs text-muted leading-relaxed">
-    I consent to my CV and application details being processed, including automated
-    screening by an AI agent, for this recruitment process. A human reviews any shortlist
-    before interview invitations are sent. See our{" "}
-    <a href="/privacy" target="_blank" className="text-amber underline">
-      privacy notice
-    </a>.
-  </span>
-</label>
+            <input
+              type="checkbox"
+              checked={consent}
+              onChange={(e) => setConsent(e.target.checked)}
+              required
+              className="w-4 h-4 mt-0.5 accent-amber shrink-0"
+            />
+            <span className="text-xs text-muted leading-relaxed">
+              I consent to my CV and application details being processed, including automated
+              screening by an AI agent, for this recruitment process. A human reviews any shortlist
+              before interview invitations are sent. See our{" "}
+              <a href="/privacy" target="_blank" className="text-amber underline">
+                privacy notice
+              </a>.
+            </span>
+          </label>
           <button
             type="submit"
             disabled={submitting || !consent}

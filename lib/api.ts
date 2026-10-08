@@ -465,6 +465,7 @@ export type CandidateProfile = {
   experience: string | null; // JSON-encoded ExperienceEntry[]
   projects: string | null;
   certifications: string | null;
+  cvFilePath: string | null;
   education: string | null;
   languages: string | null; // JSON-encoded string[]
 };
@@ -619,5 +620,11 @@ export async function deleteMyAccount() {
   if (!res.ok) throw new Error("Delete failed");
 }
 
+export async function getMyCandidateCvStatus(): Promise<{ hasCv: boolean; candidateId: number | null }> {
+  const account = await getMyCandidateAccount();
+  if (!account) return { hasCv: false, candidateId: null };
+  const profile = await getMyProfile();
+  return { hasCv: !!profile?.cvFilePath, candidateId: account.candidateId };
+}
 
 export { API_URL };
