@@ -33,7 +33,13 @@ export default function ProfilePage() {
   const [editingSection, setEditingSection] = useState<string | null>(null);
   const [confirmingDelete, setConfirmingDelete] = useState(false);
   const [deleting, setDeleting] = useState(false);
-const [cvStatusMsg, setCvStatusMsg] = useState<string | null>(null);
+  const [cvStatusMsg, setCvStatusMsg] = useState<string | null>(null);
+
+  // Holds the CV the user just picked while we wait for them to confirm that
+  // it should replace their existing profile data (only used when the profile
+  // already has content — see onCvSelected).
+  const [pendingCv, setPendingCv] = useState<File | null>(null);
+
   const parse = <T,>(json: string | null): T[] => {
     if (!json) return [];
     try { return JSON.parse(json); } catch { return []; }
@@ -99,44 +105,75 @@ const [cvStatusMsg, setCvStatusMsg] = useState<string | null>(null);
     } finally { setSaving(false); }
   };
 
+  // Removes one entry AND saves right away, so a refresh can't bring it back.
+  const removeEntry = async <T,>(
+    field: "experience" | "projects" | "certifications" | "education",
+    items: T[],
+    setItems: (v: T[]) => void,
+    index: number
+  ) => {
+    const next = items.filter((_, i) => i !== index);
+    setItems(next);
+    await updateMyProfile({ [field]: next } as any);
+  };
+
   const handlePhotoUpload = async (file: File) => {
     setPhotoUploading(true);
     try { await uploadMyPhoto(file); await load(); } finally { setPhotoUploading(false); }
   };
 
-const handleCvUpload = async (file: File) => {
-  setExtracting(true);
-  setCvStatusMsg(null);
-  try {
-    const result = await extractProfileFromCv(file);
-    if (!result.extracted) {
-      setCvStatusMsg("Your CV was saved, but we couldn't read any text from it. You can fill your profile in manually.");
-      return;
+  // True if the profile already has CV-derived content a new upload would replace.
+  const hasExistingContent = Boolean(
+    overview || experience.length || projects.length || certifications.length || education.length || languages.length
+  );
+
+  // If there's existing content, ask before replacing it; otherwise go straight ahead.
+  const onCvSelected = (file: File) => {
+    if (hasExistingContent) setPendingCv(file);
+    else handleCvUpload(file);
+  };
+
+  const handleCvUpload = async (file: File) => {
+    setPendingCv(null);
+    setExtracting(true);
+    setCvStatusMsg(null);
+    try {
+      const result = await extractProfileFromCv(file);
+
+      // Nothing readable: leave the existing profile untouched.
+      if (!result.extracted) {
+        setCvStatusMsg("Your CV was saved, but no text could be read from it (it may be a scanned image). Your existing details were left unchanged.");
+        return;
+      }
+
+      // REPLACE every CV-derived field. Anything the new CV doesn't contain
+      // is cleared, so old details never linger. Salary range and photo
+      // aren't from a CV, so they're kept.
+      const next = {
+        title: result.title ?? "",
+        overview: result.overview ?? "",
+        location: result.location ?? "",
+        phone: result.phone ?? "",
+        experience: result.experience ?? [],
+        projects: result.projects ?? [],
+        certifications: result.certifications ?? [],
+        education: result.education ?? [],
+        languages: result.languages ?? [],
+      };
+      setTitle(next.title); setOverview(next.overview); setLocation(next.location); setPhone(next.phone);
+      setExperience(next.experience); setProjects(next.projects);
+      setCertifications(next.certifications); setEducation(next.education); setLanguages(next.languages);
+      await updateMyProfile(next);
+
+      setCvStatusMsg(
+        result.method === "agent"
+          ? "Your CV was saved and your profile was replaced with its contents."
+          : "Your CV was saved and your profile was filled using basic parsing, which is rougher than usual. Please review each section."
+      );
+    } finally {
+      setExtracting(false);
     }
-
-    // Only apply fields that actually came back with content.
-    const updates: Record<string, unknown> = {};
-    if (result.title) { setTitle(result.title); updates.title = result.title; }
-    if (result.overview) { setOverview(result.overview); updates.overview = result.overview; }
-    if (result.location) { setLocation(result.location); updates.location = result.location; }
-    if (result.phone) { setPhone(result.phone); updates.phone = result.phone; }
-    if (result.experience?.length) { setExperience(result.experience); updates.experience = result.experience; }
-    if (result.projects?.length) { setProjects(result.projects); updates.projects = result.projects; }
-    if (result.certifications?.length) { setCertifications(result.certifications); updates.certifications = result.certifications; }
-    if (result.education?.length) { setEducation(result.education); updates.education = result.education; }
-    if (result.languages?.length) { setLanguages(result.languages); updates.languages = result.languages; }
-
-    if (Object.keys(updates).length) await updateMyProfile(updates as any);
-
-    setCvStatusMsg(
-      result.method === "agent"
-        ? "Your CV was saved and your profile filled in automatically."
-        : "Your CV was saved and your profile was filled in using basic parsing. It's rougher than usual, so please review each section."
-    );
-  } finally {
-    setExtracting(false);
-  }
-};
+  };
 
   if (loading) return <div className="p-8 text-muted">Loading profile...</div>;
 
@@ -209,16 +246,47 @@ const handleCvUpload = async (file: File) => {
       <div className="mb-6 flex items-center gap-3">
         <label className="font-display text-sm font-medium bg-amber text-[#1A1204] rounded-lg px-4 py-2 hover:opacity-90 transition-opacity cursor-pointer">
           {extracting ? "Reading your CV..." : "Fill from CV"}
+          {/* onCvSelected asks for confirmation only when the profile already
+              has content; otherwise it uploads right away. e.target.value is
+              reset so choosing the same file again (after cancelling) still
+              triggers onChange. */}
           <input
             type="file"
             accept="application/pdf"
             className="hidden"
             disabled={extracting}
-            onChange={(e) => e.target.files?.[0] && handleCvUpload(e.target.files[0])}
+            onChange={(e) => {
+              const file = e.target.files?.[0];
+              // Reset first so picking the same file twice still fires onChange.
+              e.target.value = "";
+              if (file) onCvSelected(file);
+            }}
           />
         </label>
         <p className="text-xs text-muted">Upload a CV and we&apos;ll fill in your profile automatically — you can edit anything after.</p>
       </div>
+
+      {/* Confirm panel: shown only when a CV is pending (profile already has
+          content). "Replace details" runs the upload; "Cancel" discards the pick. */}
+      {pendingCv && (
+        <div className="mb-6 rounded-lg border border-amber/40 bg-surface p-4">
+          <p className="text-sm mb-3">
+            Replace your current profile details with what&apos;s in{" "}
+            <span className="font-medium">{pendingCv.name}</span>? Your photo and salary range are kept.
+          </p>
+          <div className="flex gap-3">
+            <button onClick={() => handleCvUpload(pendingCv)}
+              className="font-display text-xs font-medium bg-amber text-[#1A1204] rounded-lg px-3 py-1.5">
+              Replace details
+            </button>
+            <button onClick={() => setPendingCv(null)}
+              className="text-xs border border-border rounded-lg px-3 py-1.5 hover:bg-bg transition-colors">
+              Cancel
+            </button>
+          </div>
+        </div>
+      )}
+
       {cvStatusMsg && <p className="text-xs text-green mt-2">{cvStatusMsg}</p>}
       {/* Overview + Contact */}
       <div className="grid md:grid-cols-2 gap-6 mb-6">
@@ -253,7 +321,7 @@ const handleCvUpload = async (file: File) => {
           now; can get richer (drag-reorder, etc.) later if needed. */}
       <ListSection
         title="Experience" items={experience}
-        render={(e: ExperienceEntry) => `${e.title} at ${e.company} (${e.duration})`}
+        render={(e: ExperienceEntry) => [e.title, e.company && `at ${e.company}`, e.duration && `(${e.duration})`].filter(Boolean).join(" ")}
         onAdd={() => setExperience([...experience, { title: "", company: "", duration: "", description: "" }])}
         onSave={() => saveSection("experience", experience)}
         editing={editingSection === "experience"} onEdit={() => setEditingSection("experience")}
@@ -269,7 +337,7 @@ const handleCvUpload = async (file: File) => {
               className="bg-bg border border-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-amber" />
           </div>
         )}
-        onRemove={(i) => setExperience(experience.filter((_, idx) => idx !== i))}
+        onRemove={(i) => removeEntry("experience", experience, setExperience, i)}
         onUpdate={(i, item) => setExperience(experience.map((e, idx) => (idx === i ? item : e)))}
         saving={saving}
       />
@@ -290,14 +358,14 @@ const handleCvUpload = async (file: File) => {
               className="bg-bg border border-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-amber" />
           </div>
         )}
-        onRemove={(i) => setProjects(projects.filter((_, idx) => idx !== i))}
+        onRemove={(i) => removeEntry("projects", projects, setProjects, i)}
         onUpdate={(i, item) => setProjects(projects.map((p, idx) => (idx === i ? item : p)))}
         saving={saving}
       />
 
       <ListSection
         title="Certifications" items={certifications}
-        render={(c: CertificationEntry) => `${c.name} — ${c.issuer} (${c.year})`}
+        render={(c: CertificationEntry) => [c.name, c.issuer && `— ${c.issuer}`, c.year && `(${c.year})`].filter(Boolean).join(" ")}
         onAdd={() => setCertifications([...certifications, { name: "", issuer: "", year: "" }])}
         onSave={() => saveSection("certifications", certifications)}
         editing={editingSection === "certifications"} onEdit={() => setEditingSection("certifications")}
@@ -311,14 +379,14 @@ const handleCvUpload = async (file: File) => {
               className="bg-bg border border-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-amber" />
           </div>
         )}
-        onRemove={(i) => setCertifications(certifications.filter((_, idx) => idx !== i))}
+        onRemove={(i) => removeEntry("certifications", certifications, setCertifications, i)}
         onUpdate={(i, item) => setCertifications(certifications.map((c, idx) => (idx === i ? item : c)))}
         saving={saving}
       />
 
       <ListSection
         title="Education" items={education}
-        render={(e: EducationEntry) => `${e.degree}, ${e.school} (${e.year})`}
+        render={(e: EducationEntry) => [e.degree, e.school, e.year && `(${e.year})`].filter(Boolean).join(", ")}
         onAdd={() => setEducation([...education, { school: "", degree: "", year: "" }])}
         onSave={() => saveSection("education", education)}
         editing={editingSection === "education"} onEdit={() => setEditingSection("education")}
@@ -332,7 +400,7 @@ const handleCvUpload = async (file: File) => {
               className="bg-bg border border-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-amber" />
           </div>
         )}
-        onRemove={(i) => setEducation(education.filter((_, idx) => idx !== i))}
+        onRemove={(i) => removeEntry("education", education, setEducation, i)}
         onUpdate={(i, item) => setEducation(education.map((e, idx) => (idx === i ? item : e)))}
         saving={saving}
       />
